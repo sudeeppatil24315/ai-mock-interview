@@ -1,0 +1,275 @@
+{
+  "name": "Interview Generation Workflow",
+  "description": "AI-powered interview generation workflow for PYT4 interviewer",
+  "globalPrompt": "You are PYT4, a professional AI interviewer assistant. Your task is to help users create personalized interview questions by collecting their requirements through a natural conversation. Be friendly, professional, and guide users step by step.",
+  "globalVoice": {
+    "voiceId": "Elliot",
+    "provider": "vapi"
+  },
+  "nodes": [
+    {
+      "name": "introduction",
+      "type": "conversation",
+      "isStart": true,
+      "metadata": {
+        "position": {
+          "x": 32.85540008544922,
+          "y": 97.65612030029297
+        }
+      },
+      "prompt": "You are PYT4, interview assistant. Start with: Hi, I am PYT4, your personal interviewer. I'll help you create personalized interview questions. Are you ready to get started?",
+      "transcriber": {
+        "model": "nova-2-meeting",
+        "provider": "deepgram"
+      },
+      "messagePlan": {
+        "firstMessage": "Hi, I am PYT4, your personal interviewer. I'll help you create personalized interview questions. Are you ready to get started?"
+      },
+      "toolIds": []
+    },
+    {
+      "name": "conversation_1756907449056",
+      "type": "conversation",
+      "metadata": {
+        "position": {
+          "x": 818.5662002563477,
+          "y": 23.65612030029297
+        }
+      },
+      "prompt": "Great, let's set up your interview practice. I just need a few details from you:\n\n1. Target role - What role are you preparing for? (e.g., Software Engineer, Data Scientist, Product Manager)\n2. Experience level - What's your experience level? (Entry-level, Mid-level, or Senior)\n3. Tech stack - Which technology stack should the questions focus on? (e.g., Java, Python, React, AWS, etc.)\n4. Interview type - What type of interview would you like to practice? (Behavioural, Technical, or Mixed)\n5. Number of questions - How many interview questions would you like me to generate?\n6. User ID - I need your user ID to save the interview (this will be provided automatically)\n\nPlease provide all these details so I can create the perfect interview for you.",
+      "transcriber": {
+        "model": "nova-2-meeting",
+        "provider": "deepgram"
+      },
+      "variableExtractionPlan": {
+        "output": [
+          {
+            "enum": [],
+            "type": "string",
+            "title": "role",
+            "description": "The job role the user is preparing for"
+          },
+          {
+            "enum": [],
+            "type": "string",
+            "title": "level",
+            "description": "The experience level (entry, mid, senior)"
+          },
+          {
+            "enum": [],
+            "type": "string",
+            "title": "techstack",
+            "description": "The technology stack to focus on"
+          },
+          {
+            "enum": [],
+            "type": "string",
+            "title": "type",
+            "description": "The type of interview (technical, behavioral, mixed)"
+          },
+          {
+            "enum": [],
+            "type": "number",
+            "title": "amount",
+            "description": "Number of questions to generate"
+          },
+          {
+            "enum": [],
+            "type": "string",
+            "title": "userid",
+            "description": "User ID for saving the interview"
+          }
+        ]
+      },
+      "messagePlan": {
+        "firstMessage": "Great, let's set up your interview practice. I just need a few details from you:\n\n1. What role are you preparing for?\n2. What's your experience level?\n3. Which technology stack should we focus on?\n4. What type of interview would you like? (Technical, Behavioral, or Mixed)\n5. How many questions would you like me to generate?"
+      },
+      "toolIds": []
+    },
+    {
+      "name": "conversation_1756908018773",
+      "type": "conversation",
+      "metadata": {
+        "position": {
+          "x": 1604.2769622802734,
+          "y": 107.65612030029297
+        }
+      },
+      "prompt": "Confirm the details with the user before generating the interview.",
+      "transcriber": {
+        "model": "nova-2-meeting",
+        "provider": "deepgram"
+      },
+      "messagePlan": {
+        "firstMessage": "Got it! You want a {{type}} interview for a {{role}} role with {{techstack}} technology, at {{level}} level, and you'd like {{amount}} questions. Should I generate your personalized interview now?"
+      },
+      "toolIds": []
+    },
+    {
+      "name": "apiRequest_1756908100126",
+      "type": "tool",
+      "metadata": {
+        "position": {
+          "x": 2389.9877548217773,
+          "y": 143.65612030029297
+        }
+      },
+      "tool": {
+        "url": "https://ai-mock-interview-cm46.vercel.app/api/vapi/generate",
+        "body": {
+          "type": "object",
+          "required": ["role", "level", "techstack", "type", "amount", "userid"],
+          "properties": {
+            "role": {
+              "type": "string",
+              "default": "{{role}}",
+              "description": "Job role"
+            },
+            "level": {
+              "type": "string",
+              "default": "{{level}}",
+              "description": "Experience level"
+            },
+            "techstack": {
+              "type": "string",
+              "default": "{{techstack}}",
+              "description": "Technology stack"
+            },
+            "type": {
+              "type": "string",
+              "default": "{{type}}",
+              "description": "Interview type"
+            },
+            "amount": {
+              "type": "number",
+              "default": "{{amount}}",
+              "description": "Number of questions"
+            },
+            "userid": {
+              "type": "string",
+              "default": "{{userid}}",
+              "description": "User ID"
+            }
+          }
+        },
+        "name": "generateInterview",
+        "type": "apiRequest",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "function": {
+          "name": "generateInterview",
+          "parameters": {
+            "type": "object",
+            "required": ["role", "level", "techstack", "type", "amount", "userid"],
+            "properties": {
+              "role": {"type": "string"},
+              "level": {"type": "string"},
+              "techstack": {"type": "string"},
+              "type": {"type": "string"},
+              "amount": {"type": "number"},
+              "userid": {"type": "string"}
+            }
+          },
+          "description": "Generate personalized interview questions"
+        },
+        "messages": [
+          {
+            "type": "request-start",
+            "content": "Please hold on. I'm generating your personalized interview questions...",
+            "blocking": true
+          },
+          {
+            "type": "request-complete",
+            "content": "Excellent! Your interview has been generated successfully. You can now start your practice interview!",
+            "blocking": false
+          },
+          {
+            "type": "request-failed",
+            "content": "Sorry, there was an issue generating your interview. Please try again later.",
+            "blocking": false
+          }
+        ],
+        "variableExtractionPlan": {
+          "schema": {
+            "type": "object",
+            "required": ["role", "level", "techstack", "type", "amount", "userid"],
+            "properties": {
+              "role": {"type": "string"},
+              "level": {"type": "string"},
+              "techstack": {"type": "string"},
+              "type": {"type": "string"},
+              "amount": {"type": "number"},
+              "userid": {"type": "string"}
+            }
+          },
+          "aliases": []
+        }
+      }
+    },
+    {
+      "name": "hangup_1756965898839",
+      "type": "tool",
+      "metadata": {
+        "position": {
+          "x": 3175.698616027832,
+          "y": 149.65612030029297
+        }
+      },
+      "tool": {
+        "type": "endCall",
+        "function": {
+          "name": "endInterview",
+          "parameters": {
+            "type": "object",
+            "required": [],
+            "properties": {}
+          },
+          "description": "End the interview generation call"
+        },
+        "messages": [
+          {
+            "type": "request-start",
+            "content": "Thank you for your time! Your personalized interview is ready. You can now start practicing. Good luck!",
+            "blocking": true
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "introduction",
+      "to": "conversation_1756907449056",
+      "condition": {
+        "type": "ai",
+        "prompt": "if the user said yes or is ready to proceed"
+      }
+    },
+    {
+      "from": "conversation_1756907449056",
+      "to": "conversation_1756908018773",
+      "condition": {
+        "type": "ai",
+        "prompt": "if user provided all required variables (role, level, techstack, type, amount, userid)"
+      }
+    },
+    {
+      "from": "conversation_1756908018773",
+      "to": "apiRequest_1756908100126",
+      "condition": {
+        "type": "ai",
+        "prompt": "if user confirmed and said yes to generate the interview"
+      }
+    },
+    {
+      "from": "apiRequest_1756908100126",
+      "to": "hangup_1756965898839",
+      "condition": {
+        "type": "ai",
+        "prompt": "after API request is completed (success or failure)"
+      }
+    }
+  ]
+}

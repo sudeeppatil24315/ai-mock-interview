@@ -224,12 +224,29 @@ const Agent = ({
         id: "generate-toast"
       });
       
-      await vapi.start(process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!, {
-        variableValues: {
-          username: userName,
-          userid: userId,
-        },
-      });
+      try {
+        console.log("Starting VAPI workflow with ID:", process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID);
+        console.log("User data:", { username: userName, userid: userId });
+        
+        await vapi.start(
+          undefined,
+          undefined,
+          undefined,
+          process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!,
+          {
+            variableValues: {
+              username: userName,
+              userid: userId,
+            },
+          }
+        );
+      } catch (error) {
+        console.error("VAPI start error:", error);
+        toast.error("Failed to start interview generation. Please check your VAPI configuration.", {
+          id: "generate-toast"
+        });
+        setCallStatus(CallStatus.INACTIVE);
+      }
     } else {
       let formattedQuestions = "";
       if (questions) {
@@ -238,11 +255,17 @@ const Agent = ({
           .join("\n");
       }
 
-      await vapi.start(interviewer, {
-        variableValues: {
-          questions: formattedQuestions,
-        },
-      });
+      try {
+        await vapi.start(interviewer, {
+          variableValues: {
+            questions: formattedQuestions,
+          },
+        });
+      } catch (error) {
+        console.error("VAPI start error:", error);
+        toast.error("Failed to start interview. Please try again.");
+        setCallStatus(CallStatus.INACTIVE);
+      }
     }
   };
 
