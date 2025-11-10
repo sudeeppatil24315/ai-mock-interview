@@ -68,6 +68,21 @@ const Agent = ({
   
   // VAPI event handlers
   useEffect(() => {
+    // Store original console.error
+    const originalConsoleError = console.error;
+    
+    // Override console.error to filter out expected VAPI "Meeting has ended" errors
+    console.error = (...args: any[]) => {
+      const errorMessage = args.join(' ');
+      // Don't log "Meeting has ended" or "ejection" errors as they're expected when workflow ends
+      if (errorMessage.includes('Meeting has ended') || errorMessage.includes('ejection')) {
+        console.log('Call ended by VAPI workflow (expected behavior)');
+        return;
+      }
+      // Log all other errors normally
+      originalConsoleError.apply(console, args);
+    };
+    
     const onCallStart = () => {
       setCallStatus(CallStatus.ACTIVE);
       setLastActivityTimestamp(Date.now());
@@ -134,22 +149,32 @@ const Agent = ({
     };
 
     const onError = (error: Error) => {
-      console.log("Error:", error);
+      console.log("VAPI Error:", error);
       
       // More robust error handling for meeting ended errors
+      // When VAPI workflow uses endCall, it triggers an error event with "Meeting has ended"
+      // This is expected behavior and should be treated as a normal call end
       if (
         (typeof error === 'object' && error !== null) && 
         (
           // Check various possible error message formats
           (error.message && error.message.includes("Meeting has ended")) ||
+          (error.message && error.message.includes("ejection")) ||
           (error.toString().includes("Meeting has ended")) ||
+          (error.toString().includes("ejection")) ||
           (JSON.stringify(error).includes("Meeting has ended"))
         )
       ) {
-        console.log("Detected meeting end, transitioning to FINISHED state");
+        console.log("Call ended by workflow (expected behavior), transitioning to FINISHED state");
         setCallStatus(CallStatus.FINISHED);
-        vapi.stop(); // Ensure VAPI is properly stopped
+        // Don't call vapi.stop() here as the call is already ended
+        return; // Exit early to prevent further error handling
       }
+      
+      // For other errors, show error toast
+      console.error("Unexpected VAPI error:", error);
+      toast.error("An error occurred during the call. Please try again.");
+      setCallStatus(CallStatus.INACTIVE);
     };
 
     vapi.on("call-start", onCallStart);
@@ -160,6 +185,9 @@ const Agent = ({
     vapi.on("error", onError);
 
     return () => {
+      // Restore original console.error
+      console.error = originalConsoleError;
+      
       vapi.off("call-start", onCallStart);
       vapi.off("call-end", onCallEnd);
       vapi.off("message", onMessage);
@@ -204,16 +232,104 @@ const Agent = ({
 
     if (callStatus === CallStatus.FINISHED) {
       if (type === "generate") {
-        toast.success("Interview generated successfully!", {
-          duration: 3000,
-          id: "generate-toast"
-        });
-        router.push("/");
+        // Extract interview details from the conversation
+        const handleGenerateInterview = async () => {
+          try {
+            // Parse the conversation to extract interview details
+            const transcript = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+            
+            // Try to extract details from the conversation
+            let role = '';
+            let level = '';
+            let techstack = '';
+            let interviewType = 'technical';
+            let amount = 5;
+            
+            // Look for patterns in the conversation
+            messages.forEach(msg => {
+              const content = msg.content.toLowerCase();
+              
+              // Extract role
+              if (content.includes('role') || content.includes('position')) {
+                const roleMatch = msg.content.match(/(?:role|position)(?:\s+is)?[:\s]+([^.,!?]+)/i);
+                if (roleMatch) role = roleMatch[1].trim();
+              }
+              
+              // Extract level
+              if (content.includes('level') || content.includes('experience')) {
+                if (content.includes('senior')) level = 'Senior';
+                else if (content.includes('mid')) level = 'Mid-level';
+                else if (content.includes('junior') || content.includes('beginner')) level = 'Junior';
+              }
+              
+              // Extract tech stack
+              if (content.includes('tech') || content.includes('stack') || content.includes('technologies')) {
+                const techMatch = msg.content.match(/(?:tech|stack|technologies)[:\s]+([^.,!?]+)/i);
+                if (techMatch) techstack = techMatch[1].trim();
+              }
+              
+              // Extract type
+              if (content.includes('behavioral')) interviewType = 'behavioral';
+              else if (content.includes('technical')) interviewType = 'technical';
+              
+              // Extract amount
+              const amountMatch = content.match(/(\d+)\s*(?:questions?)/i);
+              if (amountMatch) amount = parseInt(amountMatch[1]);
+            });
+            
+            // If we couldn't extract details, use defaults
+            if (!role) role = 'Software Engineer';
+            if (!level) level = 'Mid-level';
+            if (!techstack) techstack = 'JavaScript,React,Node.js';
+            
+            console.log('Extracted interview details:', { role, level, techstack, interviewType, amount, userId });
+            
+            toast.loading("Saving your interview...", {
+              id: "generate-toast"
+            });
+            
+            // Call the API to generate and save the interview
+            const response = await fetch('/api/vapi/generate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                type: interviewType,
+                role: role,
+                level: level,
+                techstack: techstack,
+                amount: amount,
+                userid: userId
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              toast.success("Interview generated successfully!", {
+                duration: 3000,
+                id: "generate-toast"
+              });
+              router.push("/");
+            } else {
+              throw new Error('Failed to generate interview');
+            }
+          } catch (error) {
+            console.error('Error generating interview:', error);
+            toast.error("Failed to generate interview. Please try again.", {
+              id: "generate-toast"
+            });
+            router.push("/");
+          }
+        };
+        
+        handleGenerateInterview();
       } else {
         handleGenerateFeedback(messages);
       }
     }
-  }, [messages, callStatus, feedbackId, interviewId, router, type, userId]);
+  }, [messages, callStatus, feedbackId, interviewId, router, type, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCall = async () => {
     setCallStatus(CallStatus.CONNECTING);
@@ -227,6 +343,14 @@ const Agent = ({
       try {
         console.log("Starting VAPI workflow with ID:", process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID);
         console.log("User data:", { username: userName, userid: userId });
+        
+        if (!userId) {
+          toast.error("User ID is required to generate interview", {
+            id: "generate-toast"
+          });
+          setCallStatus(CallStatus.INACTIVE);
+          return;
+        }
         
         await vapi.start(
           undefined,

@@ -1,20 +1,7 @@
-import AuthForm from '@/components/AuthForm'
-import Footer from '@/components/Footer'
+import LoginPage from '@/components/ui/login-1'
 
 const Page = () => {
-  return (
-    <div className="min-h-screen flex flex-col">
-      <main className="flex-grow flex items-center justify-center px-4 sm:px-6 lg:px-16 py-8">
-        <div className="w-full max-w-md">
-          <AuthForm type="sign-in" />
-        </div>
-      </main>
-      
-      <div className="mt-auto">
-        <Footer />
-      </div>
-    </div>
-  )
+  return <LoginPage type="sign-in" />
 }
 
 export default Page

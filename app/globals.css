@@ -60,6 +60,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  
+  /* Login component variables */
+  --color-bg: #ffffff;
+  --color-surface: #f5f5f5;
+  --color-muted-surface: #e5e5e5;
+  --color-border: #d4d4d4;
+  --color-text-secondary: #737373;
+  --color-text-primary: #171717;
+  --color-heading: #0a0a0a;
+  --color-text-primary-rgb: 23, 23, 23;
+  --color-bg-2: #171717;
 }
 
 .dark {
@@ -94,6 +105,17 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  
+  /* Login component variables - dark mode */
+  --color-bg: #101214;
+  --color-surface: #161A1D;
+  --color-muted-surface: #1D2125;
+  --color-border: #2C333A;
+  --color-text-secondary: #596773;
+  --color-text-primary: #C7D1DB;
+  --color-heading: #DEE4EA;
+  --color-text-primary-rgb: 199, 209, 219;
+  --color-bg-2: #C7D1DB;
 }
 
 @theme inline {

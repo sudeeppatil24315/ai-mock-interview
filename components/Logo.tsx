@@ -4,10 +4,11 @@ import clsx from "clsx";
 
 interface LogoProps {
   link?: boolean;
+  linkToLanding?: boolean;
   className?: string;
 }
 
-export const Logo = ({ link = false, className }: LogoProps) => {
+export const Logo = ({ link = false, linkToLanding = false, className }: LogoProps) => {
   const content = (
     <div className={clsx("flex items-center gap-2", className)}>
       <Image src="/logo-4.png" alt="PYTAI logo" width={84} height={39} />
@@ -16,6 +17,11 @@ export const Logo = ({ link = false, className }: LogoProps) => {
       </span>
     </div>
   );
+
+  if (linkToLanding) {
+    const landingUrl = process.env.NEXT_PUBLIC_LANDING_URL || 'http://localhost:5173';
+    return <a href={landingUrl}>{content}</a>;
+  }
 
   return link ? <Link href="/">{content}</Link> : content;
 };
