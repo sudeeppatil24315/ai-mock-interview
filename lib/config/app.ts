@@ -1,7 +1,7 @@
 // App configuration for cross-linking
 export const APP_CONFIG = {
   // Landing page URL - update this based on environment
-  landingUrl: process.env.NEXT_PUBLIC_LANDING_URL || 'http://localhost:5173',
+  landingUrl: process.env.NEXT_PUBLIC_LANDING_URL || 'https://landing-page-1o2uohv-sudeeps-projects-605fda3a.vercel.app',
   
   // Routes
   routes: {
@@ -13,7 +13,7 @@ export const APP_CONFIG = {
   
   // Helper to get full URL
   getLandingUrl: (path: string = '') => {
-    const baseUrl = process.env.NEXT_PUBLIC_LANDING_URL || 'http://localhost:5173';
+    const baseUrl = process.env.NEXT_PUBLIC_LANDING_URL || 'https://landing-page-1o2uohv-sudeeps-projects-605fda3a.vercel.app';
     return `${baseUrl}${path}`;
   }
 };
