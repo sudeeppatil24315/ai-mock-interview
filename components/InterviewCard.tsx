@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 import DisplayTechIcons from "./DisplayTechIcons";
+import { InterviewCardActions } from "./InterviewCardActions";
 
 import { cn, getRandomInterviewCover } from "@/lib/utils";
 import { getFeedbackByInterviewId } from "@/lib/actions/general.action";
@@ -56,7 +57,10 @@ const InterviewCard = async ({
   const imageSrc = coverImage || getRandomInterviewCover();
 
   return (
-    <div className="card-border w-[360px] max-sm:w-full min-h-96">
+    <div className="card-border w-[360px] max-sm:w-full min-h-96 relative">
+      {/* Delete Button */}
+      <InterviewCardActions interviewId={interviewId} userId={userId} />
+      
       <div className="card-interview">
         <div>
           {/* Type Badge - Top Right */}

@@ -209,24 +209,53 @@ const Agent = ({
         id: "feedback-toast"
       });
 
-      const { success, feedbackId: id } = await createFeedback({
-        interviewId: interviewId!,
-        userId: userId!,
-        transcript: messages,
-        feedbackId,
-      });
+      try {
+        console.log("Starting feedback generation with:", {
+          interviewId,
+          userId,
+          messageCount: messages.length,
+          feedbackId
+        });
 
-      if (success && id) {
-        toast.success("Feedback generated successfully!", {
-          id: "feedback-toast"
+        const result = await createFeedback({
+          interviewId: interviewId!,
+          userId: userId!,
+          transcript: messages,
+          feedbackId,
         });
-        router.push(`/interview/${interviewId}/feedback`);
-      } else {
-        console.log("Error saving feedback");
-        toast.error("Failed to generate feedback", {
-          id: "feedback-toast"
+
+        console.log("Feedback creation result:", result);
+        console.log("Result type:", typeof result);
+        console.log("Result keys:", result ? Object.keys(result) : 'null/undefined');
+
+        if (result && result.success && result.feedbackId) {
+          toast.success("Feedback generated successfully!", {
+            id: "feedback-toast"
+          });
+          router.push(`/interview/${interviewId}/feedback`);
+        } else {
+          console.error("Error saving feedback - Full result:", JSON.stringify(result, null, 2));
+          const errorMessage = result?.message || "Failed to generate feedback. Please try again.";
+          toast.error(errorMessage, {
+            id: "feedback-toast",
+            duration: 5000
+          });
+          // Don't redirect immediately, let user see the error
+          setTimeout(() => router.push("/"), 3000);
+        }
+      } catch (error) {
+        console.error("Exception in handleGenerateFeedback:", error);
+        console.error("Error type:", typeof error);
+        console.error("Error details:", error instanceof Error ? {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        } : error);
+        toast.error("An unexpected error occurred while generating feedback", {
+          id: "feedback-toast",
+          duration: 5000
         });
-        router.push("/");
+        setTimeout(() => router.push("/"), 3000);
       }
     };
 

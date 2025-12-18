@@ -1,15 +1,30 @@
 "use server";
 
-import { generateObject } from "ai";
-import { google } from "@ai-sdk/google";
-
 import { db } from "@/firebase/admin";
-import { feedbackSchema } from "@/constants";
 
 export async function createFeedback(params: CreateFeedbackParams) {
+  console.log("[SERVER] createFeedback called with params:", {
+    interviewId: params.interviewId,
+    userId: params.userId,
+    transcriptLength: params.transcript?.length,
+    feedbackId: params.feedbackId
+  });
+
   const { interviewId, userId, transcript, feedbackId } = params;
 
   try {
+    // Validate Google API key
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    console.log("[SERVER] API Key check:", apiKey ? "Present" : "Missing");
+    
+    if (!apiKey) {
+      console.error("[SERVER] GOOGLE_GENERATIVE_AI_API_KEY is not set");
+      return {
+        success: false,
+        message: "Google AI API key is not configured"
+      };
+    }
+
     const formattedTranscript = transcript
       .map(
         (sentence: { role: string; content: string }) =>
@@ -51,41 +66,28 @@ export async function createFeedback(params: CreateFeedbackParams) {
         feedbackRef = db.collection("feedback").doc();
       }
       await feedbackRef.set(feedback);
+      console.log("[SERVER] Minimal participation feedback saved:", feedbackRef.id);
       return { success: true, feedbackId: feedbackRef.id };
     }
 
     // Normal AI-based assessment for users who participated
-    const { object } = await generateObject({
-      model: google("gemini-1.5-flash", {
-        structuredOutputs: false,
-      }),
-      schema: feedbackSchema,
-      prompt: `
-        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis.
-
-        Important scoring guidelines:
-        - Score from 0 to 100 in each category
-        - Reserve scores of 90-100 for truly exceptional answers that demonstrate mastery
-        - A score of 100 should be possible for candidates who provide comprehensive, accurate, and insightful responses
-        - Scores of 0-20 indicate minimal or incorrect responses
-        - Scores of 40-60 indicate average performance
-        - Scores of 70-80 indicate good but not exceptional performance
-        
-        Transcript:
-        ${formattedTranscript}
-
-        Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
-        - **Communication Skills**: Clarity, articulation, structured responses, appropriate technical vocabulary.
-        - **Technical Knowledge**: Deep understanding of key concepts, accurate explanations, awareness of best practices.
-        - **Problem-Solving**: Ability to analyze problems, propose effective solutions, consider edge cases and alternatives.
-        - **Cultural & Role Fit**: Alignment with company values, teamwork indicators, understanding of the role.
-        - **Confidence & Clarity**: Confidence in responses, engagement, clarity of thought, minimal hesitation.
-        
-        For candidates who demonstrate exceptional mastery in all areas, do not hesitate to award scores in the 90-100 range.
-        `,
-      system:
-        "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be fair and objective, rewarding excellence when demonstrated.",
+    console.log("[SERVER] Generating AI feedback via API route...");
+    
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+    const response = await fetch(`${baseUrl}/api/generate-feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ formattedTranscript }),
     });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `API error: ${response.status}`);
+    }
+
+    const object = await response.json();
 
     const feedback = {
       interviewId: interviewId,
@@ -107,11 +109,25 @@ export async function createFeedback(params: CreateFeedbackParams) {
     }
 
     await feedbackRef.set(feedback);
+    console.log("[SERVER] AI-generated feedback saved:", feedbackRef.id);
 
     return { success: true, feedbackId: feedbackRef.id };
   } catch (error) {
-    console.error("Error saving feedback:", error);
-    return { success: false };
+    console.error("[SERVER] Error saving feedback:", error);
+    console.error("[SERVER] Error details:", {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
+      error
+    });
+    
+    const errorMessage = error instanceof Error ? error.message : 'Failed to save feedback';
+    console.error("[SERVER] Returning error response:", { success: false, message: errorMessage });
+    
+    return { 
+      success: false, 
+      message: errorMessage
+    };
   }
 }
 
@@ -173,4 +189,46 @@ export async function getInterviewsByUserId(
     id: doc.id,
     ...doc.data(),
   })) as Interview[];
+}
+
+export async function deleteInterview(params: { interviewId: string; userId: string }) {
+  const { interviewId, userId } = params;
+
+  try {
+    // Get the interview to verify ownership
+    const interviewDoc = await db.collection("interviews").doc(interviewId).get();
+    
+    if (!interviewDoc.exists) {
+      return { success: false, message: "Interview not found" };
+    }
+
+    const interviewData = interviewDoc.data();
+    
+    // Verify the user owns this interview
+    if (interviewData?.userId !== userId) {
+      return { success: false, message: "Unauthorized to delete this interview" };
+    }
+
+    // Delete associated feedback
+    const feedbackSnapshot = await db
+      .collection("feedback")
+      .where("interviewId", "==", interviewId)
+      .where("userId", "==", userId)
+      .get();
+
+    const batch = db.batch();
+    feedbackSnapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    // Delete the interview
+    batch.delete(db.collection("interviews").doc(interviewId));
+
+    await batch.commit();
+
+    return { success: true, message: "Interview deleted successfully" };
+  } catch (error) {
+    console.error("Error deleting interview:", error);
+    return { success: false, message: "Failed to delete interview" };
+  }
 }
