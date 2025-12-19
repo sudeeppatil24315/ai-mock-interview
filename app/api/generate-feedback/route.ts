@@ -1,6 +1,5 @@
 export const runtime = "nodejs";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -15,11 +14,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
-    });
 
     const prompt = `You are a professional interviewer analyzing a mock interview. Evaluate the candidate based on structured categories.
 
@@ -43,9 +37,40 @@ Provide a JSON response with this structure:
 
 Return ONLY the JSON object.`;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = response.text();
+    // Use direct HTTP call to v1 API (not v1beta)
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: prompt }]
+          }]
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("[API] Gemini API error:", errorData);
+      return NextResponse.json(
+        { error: `Gemini API error: ${JSON.stringify(errorData)}` },
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!text) {
+      return NextResponse.json(
+        { error: "No response from Gemini API" },
+        { status: 500 }
+      );
+    }
     
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
