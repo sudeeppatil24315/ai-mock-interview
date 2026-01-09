@@ -12,8 +12,7 @@ import {toast} from "sonner";
 import FormField from "@/components/FormField";
 import {useRouter} from "next/navigation";
 import {
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword,
+  sendSignInLinkToEmail,
   signInWithPopup,
   GoogleAuthProvider
 } from "firebase/auth";
@@ -26,7 +25,6 @@ const authFormSchema = (type: FormType) => {
     return z.object({
         name: type === 'sign-up' ? z.string().min(3) : z.string().optional(),
         email: z.string().email(),
-        password: z.string().min(3),
     })
 }
 
@@ -34,138 +32,90 @@ const AuthForm = ({ type }: { type: FormType }) => {
     const router = useRouter();
     const formSchema = authFormSchema(type);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    const [isEmailLoading, setIsEmailLoading] = useState(false);
+    const [emailSent, setEmailSent] = useState(false);
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
             name: "",
             email: "",
-            password: "",
         },
     })
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
         try {
-            if(type === 'sign-up') {
-                const { name, email, password } = values;
+            setIsEmailLoading(true);
+            const { email, name } = values;
 
-                const userCredentials = await createUserWithEmailAndPassword(auth, email, password);
-                
-                const result = await signUp({
-                    uid: userCredentials.user.uid,
-                    name: name!,
-                    email,
-                    password,
-                })
-
-                if(!result?.success) {
-                    toast.error(result?.message);
-                    return;
-                }
-
-                // Sign in directly after signup
-                const idToken = await userCredentials.user.getIdToken();
-                await signIn({ email, idToken });
-                toast.success('Account created successfully!');
-                router.push('/');
-            } else {
-                const { email, password } = values;
-
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                
-                const idToken = await userCredential.user.getIdToken();
-
-                if(!idToken) {
-                    toast.error('Sign in failed')
-                    return;
-                }
-
-                await signIn({
-                    email, idToken
-                })
-
-                toast.success('Sign in successfully.');
-                router.push('/')
+            // Store name for sign-up flow
+            if (type === 'sign-up' && name) {
+                window.localStorage.setItem('emailLinkName', name);
             }
+
+            const actionCodeSettings = {
+                url: `${window.location.origin}/auth/callback`,
+                handleCodeInApp: true,
+            };
+
+            await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+            
+            // Save email for verification on callback
+            window.localStorage.setItem('emailForSignIn', email);
+            window.localStorage.setItem('authType', type);
+            
+            setEmailSent(true);
+            toast.success('Sign-in link sent! Check your email.');
         } catch (error) {
-            console.log(error);
-            toast.error(`There was an error: ${error}`)
+            console.error('Email link error:', error);
+            toast.error(`Failed to send email link: ${(error as Error).message}`);
+        } finally {
+            setIsEmailLoading(false);
         }
     }
-    
-
 
     const handleGoogleSignIn = async () => {
         try {
             setIsGoogleLoading(true);
             const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: 'select_account' });
             
-            // Add these settings to help with the sign-in experience
-            provider.setCustomParameters({
-                prompt: 'select_account'
+            const userCredential = await signInWithPopup(auth, provider);
+            const user = userCredential.user;
+            const idToken = await user.getIdToken();
+
+            const signUpResult = await signUp({
+                uid: user.uid,
+                name: user.displayName || 'User',
+                email: user.email || '',
+                password: ''
             });
             
-            try {
-                const userCredential = await signInWithPopup(auth, provider);
-                
-                // Get user info
-                const user = userCredential.user;
-                
-                // Get the ID token
-                const idToken = await user.getIdToken();
-
-                
-                // Always try to create/update the user record in your database
-                const signUpResult = await signUp({
-                    uid: user.uid,
-                    name: user.displayName || 'User',
-                    email: user.email || '',
-                    password: '' // Empty password indicates Google sign-in
-                });
-                
-                if (!signUpResult?.success) {
-                    toast.error(signUpResult?.message || 'Failed to create account');
-                    setIsGoogleLoading(false);
-                    return;
-                }
-                
-                // Sign in the user with your backend
-                const signInResult = await signIn({
-                    email: user.email || '',
-                    idToken
-                });
-                
-                if (!signInResult?.success) {
-                    toast.error(signInResult?.message || 'Failed to sign in');
-                    setIsGoogleLoading(false);
-                    return;
-                }
-                
-                toast.success('Signed in successfully with Google');
-                
-                // Use router.replace instead of push to avoid navigation issues
-                router.replace('/');
-            } catch (popupError: unknown) {
-                console.error("Popup error:", popupError);
-                
-                if ((popupError as { code?: string }).code === 'auth/popup-closed-by-user' ||
-                    (popupError as { code?: string }).code === 'auth/popup-blocked' ||
-                    (popupError as Error).message?.includes('Cross-Origin-Opener-Policy')) {
-                    
-                    toast.error('Popup authentication failed. Please try again.');
-                    throw popupError; // Re-throw to be caught by the outer catch
-                }
+            if (!signUpResult?.success) {
+                toast.error(signUpResult?.message || 'Failed to create account');
+                return;
             }
+            
+            const signInResult = await signIn({
+                email: user.email || '',
+                idToken
+            });
+            
+            if (!signInResult?.success) {
+                toast.error(signInResult?.message || 'Failed to sign in');
+                return;
+            }
+            
+            toast.success('Signed in successfully with Google');
+            router.replace('/');
         } catch (error: unknown) {
             console.error('Google sign-in error:', error);
-            
-            // Handle specific error cases
             if ((error as { code?: string }).code === 'auth/popup-closed-by-user') {
-                toast.error('Sign-in cancelled. Please try again.');
+                toast.error('Sign-in cancelled.');
             } else if ((error as { code?: string }).code === 'auth/popup-blocked') {
-                toast.error('Pop-up blocked by browser. Please allow pop-ups for this site.');
+                toast.error('Pop-up blocked. Please allow pop-ups.');
             } else {
-                toast.error(`Google sign-in failed: ${(error as Error)?.message || 'Unknown error'}`);
+                toast.error(`Google sign-in failed: ${(error as Error)?.message}`);
             }
         } finally {
             setIsGoogleLoading(false);
@@ -173,10 +123,36 @@ const AuthForm = ({ type }: { type: FormType }) => {
     };
     
     const isSignIn = type === 'sign-in';
-    
 
+    // Show success message after email is sent
+    if (emailSent) {
+        return (
+            <AuthCard>
+                <AuthHeader title="Check your email" />
+                <div className="text-center mt-6 space-y-4">
+                    <div className="w-16 h-16 mx-auto bg-green-500/20 rounded-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                    </div>
+                    <p className="text-light-100">
+                        We sent a sign-in link to your email.
+                    </p>
+                    <p className="text-light-400 text-sm">
+                        Click the link in the email to sign in. You can close this page.
+                    </p>
+                    <Button 
+                        variant="outline" 
+                        onClick={() => setEmailSent(false)}
+                        className="mt-4"
+                    >
+                        Use a different email
+                    </Button>
+                </div>
+            </AuthCard>
+        );
+    }
 
-    // Regular auth form
     return (
         <AuthCard>
             <AuthHeader title="AI-powered real-time interview platform for smarter hiring" />
@@ -204,33 +180,30 @@ const AuthForm = ({ type }: { type: FormType }) => {
                   type="email"
                 />
 
-                <FormField
-                  control={form.control}
-                  name="password"
-                  label="Password"
-                  placeholder="Enter your password"
-                  type="password"
-                />
-
-                <Button className="btn" type="submit">
-                  {isSignIn ? "Sign In" : "Create an Account"}
+                <Button className="btn" type="submit" disabled={isEmailLoading}>
+                  {isEmailLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="animate-spin h-4 w-4 border-2 border-white rounded-full border-t-transparent"></span>
+                      Sending...
+                    </span>
+                  ) : (
+                    <>Send Sign-in Link</>
+                  )}
                 </Button>
               </form>
             </Form>
             
-            {/* Divider */}
             <div className="relative flex items-center justify-center mt-6 mb-4">
               <div className="absolute border-t border-gray-700 w-full"></div>
               <span className="relative px-4 bg-gray-700 text-light-300 text-sm rounded-lg">or</span>
             </div>
             
-            {/* Google Sign In Button */}
             <Button 
               type="button"
               variant="outline"
               onClick={handleGoogleSignIn}
               disabled={isGoogleLoading}
-              className="w-full flex items-center justify-center gap-2 border-gray-700 hover:bg-dark-300 transition-colors cursor cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 border-gray-700 hover:bg-dark-300 transition-colors cursor-pointer"
             >
               {isGoogleLoading ? (
                 <span className="animate-spin h-4 w-4 border-2 border-primary-200 rounded-full border-t-transparent"></span>

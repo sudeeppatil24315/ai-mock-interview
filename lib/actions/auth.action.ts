@@ -33,8 +33,31 @@ export async function signUp(params: SignUpParams) {
     // check if user exists in db
     const userRecord = await db.collection("users").doc(uid).get();
     if (userRecord.exists) {
-      // For Google sign-in, we should allow existing users to sign in
+      // For Google sign-in, update the name and photo if they were "User" or default
       if (!password) {
+        const existingData = userRecord.data();
+        const updates: Record<string, string> = {};
+        
+        // Update name if it was default "User" and we have a real name
+        if (existingData?.name === "User" && name && name !== "User") {
+          updates.name = name;
+        }
+        
+        // Update photo from Google if not already set
+        try {
+          const authUser = await auth.getUser(uid);
+          if (authUser.photoURL && (!existingData?.photoURL || existingData.photoURL === "/user-avatar.jpg")) {
+            updates.photoURL = authUser.photoURL;
+          }
+        } catch (e) {
+          console.error("Error getting Google photo:", e);
+        }
+        
+        // Apply updates if any
+        if (Object.keys(updates).length > 0) {
+          await db.collection("users").doc(uid).update(updates);
+        }
+        
         return {
           success: true,
           message: "Google account already exists. Proceeding with sign-in.",

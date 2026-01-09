@@ -6,10 +6,9 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Instagram, Linkedin, Facebook } from 'lucide-react'
+import { Mail } from 'lucide-react'
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
+  sendSignInLinkToEmail,
   signInWithPopup,
   GoogleAuthProvider
 } from 'firebase/auth'
@@ -86,10 +85,11 @@ const LoginPage = ({ type }: LoginPageProps) => {
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isHovering, setIsHovering] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+  const [isEmailLoading, setIsEmailLoading] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
-    password: ''
+    email: ''
   })
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -100,13 +100,8 @@ const LoginPage = ({ type }: LoginPageProps) => {
     })
   }
 
-  const handleMouseEnter = () => {
-    setIsHovering(true)
-  }
-
-  const handleMouseLeave = () => {
-    setIsHovering(false)
-  }
+  const handleMouseEnter = () => setIsHovering(true)
+  const handleMouseLeave = () => setIsHovering(false)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -119,50 +114,37 @@ const LoginPage = ({ type }: LoginPageProps) => {
     e.preventDefault()
 
     try {
-      if (type === 'sign-up') {
-        const { name, email, password } = formData
+      setIsEmailLoading(true)
+      const { email, name } = formData
 
-        const userCredentials = await createUserWithEmailAndPassword(auth, email, password)
-
-        const result = await signUp({
-          uid: userCredentials.user.uid,
-          name: name!,
-          email,
-          password
-        })
-
-        if (!result?.success) {
-          toast.error(result?.message)
-          return
-        }
-
-        const idToken = await userCredentials.user.getIdToken()
-        await signIn({ email, idToken })
-        toast.success('Account created successfully!')
-        router.push('/')
-      } else {
-        const { email, password } = formData
-
-        const userCredential = await signInWithEmailAndPassword(auth, email, password)
-
-        const idToken = await userCredential.user.getIdToken()
-
-        if (!idToken) {
-          toast.error('Sign in failed')
-          return
-        }
-
-        await signIn({
-          email,
-          idToken
-        })
-
-        toast.success('Sign in successfully.')
-        router.push('/')
+      if (!email) {
+        toast.error('Please enter your email')
+        return
       }
+
+      // Store name for sign-up flow
+      if (type === 'sign-up' && name) {
+        window.localStorage.setItem('emailLinkName', name)
+      }
+
+      const actionCodeSettings = {
+        url: `${window.location.origin}/auth-callback`,
+        handleCodeInApp: true,
+      }
+
+      await sendSignInLinkToEmail(auth, email, actionCodeSettings)
+      
+      // Save email for verification on callback
+      window.localStorage.setItem('emailForSignIn', email)
+      window.localStorage.setItem('authType', type)
+      
+      setEmailSent(true)
+      toast.success('Sign-in link sent! Check your email.')
     } catch (error) {
-      console.log(error)
-      toast.error(`There was an error: ${error}`)
+      console.error('Email link error:', error)
+      toast.error(`Failed to send email link: ${(error as Error).message}`)
+    } finally {
+      setIsEmailLoading(false)
     }
   }
 
@@ -170,91 +152,78 @@ const LoginPage = ({ type }: LoginPageProps) => {
     try {
       setIsGoogleLoading(true)
       const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: 'select_account' })
 
-      provider.setCustomParameters({
-        prompt: 'select_account'
+      const userCredential = await signInWithPopup(auth, provider)
+      const user = userCredential.user
+      const idToken = await user.getIdToken()
+
+      const signUpResult = await signUp({
+        uid: user.uid,
+        name: user.displayName || 'User',
+        email: user.email || '',
+        password: ''
       })
 
-      try {
-        const userCredential = await signInWithPopup(auth, provider)
-
-        const user = userCredential.user
-
-        const idToken = await user.getIdToken()
-
-        const signUpResult = await signUp({
-          uid: user.uid,
-          name: user.displayName || 'User',
-          email: user.email || '',
-          password: ''
-        })
-
-        if (!signUpResult?.success) {
-          toast.error(signUpResult?.message || 'Failed to create account')
-          setIsGoogleLoading(false)
-          return
-        }
-
-        const signInResult = await signIn({
-          email: user.email || '',
-          idToken
-        })
-
-        if (!signInResult?.success) {
-          toast.error(signInResult?.message || 'Failed to sign in')
-          setIsGoogleLoading(false)
-          return
-        }
-
-        toast.success('Signed in successfully with Google')
-
-        router.replace('/')
-      } catch (popupError: unknown) {
-        console.error('Popup error:', popupError)
-
-        if (
-          (popupError as { code?: string }).code === 'auth/popup-closed-by-user' ||
-          (popupError as { code?: string }).code === 'auth/popup-blocked' ||
-          (popupError as Error).message?.includes('Cross-Origin-Opener-Policy')
-        ) {
-          toast.error('Popup authentication failed. Please try again.')
-          throw popupError
-        }
+      if (!signUpResult?.success) {
+        toast.error(signUpResult?.message || 'Failed to create account')
+        return
       }
+
+      const signInResult = await signIn({
+        email: user.email || '',
+        idToken
+      })
+
+      if (!signInResult?.success) {
+        toast.error(signInResult?.message || 'Failed to sign in')
+        return
+      }
+
+      toast.success('Signed in successfully with Google')
+      router.replace('/')
     } catch (error: unknown) {
       console.error('Google sign-in error:', error)
-
       if ((error as { code?: string }).code === 'auth/popup-closed-by-user') {
-        toast.error('Sign-in cancelled. Please try again.')
+        toast.error('Sign-in cancelled.')
       } else if ((error as { code?: string }).code === 'auth/popup-blocked') {
-        toast.error('Pop-up blocked by browser. Please allow pop-ups for this site.')
+        toast.error('Pop-up blocked. Please allow pop-ups.')
       } else {
-        toast.error(`Google sign-in failed: ${(error as Error)?.message || 'Unknown error'}`)
+        toast.error(`Google sign-in failed: ${(error as Error)?.message}`)
       }
     } finally {
       setIsGoogleLoading(false)
     }
   }
 
-  const socialIcons = [
-    {
-      icon: <Instagram className="w-6 h-6" />,
-      href: '#',
-      gradient: 'bg-[var(--color-bg)]'
-    },
-    {
-      icon: <Linkedin className="w-6 h-6" />,
-      href: '#',
-      bg: 'bg-[var(--color-bg)]'
-    },
-    {
-      icon: <Facebook className="w-6 h-6" />,
-      href: '#',
-      bg: 'bg-[var(--color-bg)]'
-    }
-  ]
-
   const isSignIn = type === 'sign-in'
+
+  // Show success message after email is sent
+  if (emailSent) {
+    return (
+      <div className="h-screen w-full bg-[var(--color-bg)] flex items-center justify-center">
+        <div className='card w-full max-w-md p-8 text-center'>
+          <div className="w-20 h-20 mx-auto bg-green-500/20 rounded-full flex items-center justify-center mb-6">
+            <Mail className="w-10 h-10 text-green-500" />
+          </div>
+          <h1 className='text-2xl md:text-3xl font-extrabold mb-4'>Check your email</h1>
+          <p className="text-gray-400 mb-2">
+            We sent a sign-in link to:
+          </p>
+          <p className="text-white font-medium mb-6">{formData.email}</p>
+          <p className="text-gray-500 text-sm mb-6">
+            Click the link in the email to sign in. You can close this page.
+          </p>
+          <button
+            onClick={() => setEmailSent(false)}
+            className="text-primary-200 hover:underline"
+          >
+            Use a different email
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-screen w-full bg-[var(--color-bg)] flex items-center justify-center">
@@ -280,32 +249,11 @@ const LoginPage = ({ type }: LoginPageProps) => {
                 <h1 className='text-3xl md:text-4xl font-extrabold'>
                   {isSignIn ? 'Sign in' : 'Sign up'}
                 </h1>
-                <div className="social-container">
-                  <div className="flex items-center justify-center">
-                    <ul className="flex gap-3 md:gap-4">
-                      {socialIcons.map((social, index) => {
-                        return (
-                          <li key={index} className="list-none">
-                            <a
-                              href={social.href}
-                              className={`w-[2.5rem] md:w-[3rem] h-[2.5rem] md:h-[3rem] bg-[var(--color-bg-2)] rounded-full flex justify-center items-center relative z-[1] border-3 border-[var(--color-text-primary)] overflow-hidden group`}
-                            >
-                              <div
-                                className={`absolute inset-0 w-full h-full ${
-                                  social.gradient || social.bg
-                                } scale-y-0 origin-bottom transition-transform duration-500 ease-in-out group-hover:scale-y-100`}
-                              />
-                              <span className="text-[1.5rem] text-[hsl(203,92%,8%)] transition-all duration-500 ease-in-out z-[2] group-hover:text-[var(--color-text-primary)] group-hover:rotate-y-360">
-                                {social.icon}
-                              </span>
-                            </a>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                </div>
-                <span className='text-sm'>or use your account</span>
+                <span className='text-sm text-gray-400'>
+                  {isSignIn 
+                    ? 'Enter your email to receive a sign-in link' 
+                    : 'Create an account with your email'}
+                </span>
               </div>
               <div className='grid gap-4 items-center'>
                 {!isSignIn && (
@@ -324,29 +272,34 @@ const LoginPage = ({ type }: LoginPageProps) => {
                   value={formData.email}
                   onChange={handleInputChange}
                 />
-                <AppInput
-                  placeholder="Password"
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleInputChange}
-                />
               </div>
-              {isSignIn && (
-                <a href="#" className='font-light text-sm md:text-md'>
-                  Forgot your password?
-                </a>
-              )}
-              <div className='flex gap-4 justify-center items-center flex-col'>
+              <div className='flex gap-4 justify-center items-center flex-col mt-4'>
                 <button
                   type="submit"
-                  className="group/button relative inline-flex justify-center items-center overflow-hidden rounded-md bg-[var(--color-border)] px-4 py-1.5 text-xs font-normal text-white transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg hover:shadow-[var(--color-text-primary)] cursor-pointer"
+                  disabled={isEmailLoading}
+                  className="group/button relative inline-flex justify-center items-center overflow-hidden rounded-md bg-[var(--color-border)] px-6 py-2 text-xs font-normal text-white transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg hover:shadow-[var(--color-text-primary)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span className="text-sm px-2 py-1">{isSignIn ? 'Sign In' : 'Sign Up'}</span>
+                  {isEmailLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="animate-spin h-4 w-4 border-2 border-white rounded-full border-t-transparent"></span>
+                      <span className="text-sm">Sending...</span>
+                    </span>
+                  ) : (
+                    <span className="text-sm px-2 py-1 flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      Send Sign-in Link
+                    </span>
+                  )}
                   <div className="absolute inset-0 flex h-full w-full justify-center [transform:skew(-13deg)_translateX(-100%)] group-hover/button:duration-1000 group-hover/button:[transform:skew(-13deg)_translateX(100%)]">
                     <div className="relative h-full w-8 bg-white/20" />
                   </div>
                 </button>
+
+                <div className="flex items-center gap-4 w-full my-2">
+                  <div className="flex-1 h-px bg-gray-700"></div>
+                  <span className="text-gray-500 text-sm">or</span>
+                  <div className="flex-1 h-px bg-gray-700"></div>
+                </div>
 
                 <button
                   type="button"
@@ -358,22 +311,10 @@ const LoginPage = ({ type }: LoginPageProps) => {
                     <span className="animate-spin h-4 w-4 border-2 border-primary-200 rounded-full border-t-transparent"></span>
                   ) : (
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="16" height="16">
-                      <path
-                        fill="#FFC107"
-                        d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"
-                      />
-                      <path
-                        fill="#FF3D00"
-                        d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"
-                      />
-                      <path
-                        fill="#4CAF50"
-                        d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"
-                      />
-                      <path
-                        fill="#1976D2"
-                        d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"
-                      />
+                      <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z" />
+                      <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z" />
+                      <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z" />
+                      <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z" />
                     </svg>
                   )}
                   <span className="text-sm px-2 py-1">
