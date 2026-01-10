@@ -137,7 +137,7 @@ const InterviewCard = async ({
           </p>
         </div>
 
-        <div className="flex flex-row justify-between">
+        <div className="flex flex-row justify-between items-center">
           <DisplayTechIcons techStack={techstack} />
 
             <Link

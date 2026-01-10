@@ -37,9 +37,9 @@ Provide a JSON response with this structure:
 
 Return ONLY the JSON object.`;
 
-    // Use direct HTTP call to v1 API (not v1beta)
+    // Use gemini-2.0-flash-exp (works, just has rate limits)
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: {
